@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ShoppingBag,
-  Sparkles,
 } from 'lucide-react';
 import { Dachshund } from './components/Dachshund';
 import { RoomBackground } from './components/Rooms/RoomBackground';
@@ -535,14 +534,6 @@ export const App: React.FC = () => {
           isHoveredByItem={isHoveredByItem}
           onPet={handlePet}
         />
-
-        {/* Notificaçãozinha discreta de status */}
-        <div className="mt-2 px-3 py-1 bg-white/90 rounded-full border-2 border-slate-800 shadow-md text-center max-w-[280px]">
-          <p className="text-[11px] font-bold text-slate-800 flex items-center justify-center gap-1">
-            <Sparkles size={12} className="text-amber-500 shrink-0" />
-            <span className="truncate">{pet.lastActionText}</span>
-          </p>
-        </div>
       </main>
 
       {/* ================= BARRA INFERIOR (OBJETOS VISUAIS PUROS SEM TEXTO) ================= */}
