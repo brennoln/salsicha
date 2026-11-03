@@ -1,22 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import {
-  Sparkles,
   Wifi,
   WifiOff,
   UserCheck,
-  Coins,
-  Home,
-  UtensilsCrossed,
-  Bath,
-  Moon,
-  Gamepad2,
+  ChevronLeft,
+  ChevronRight,
   ShoppingBag,
+  Sparkles,
 } from 'lucide-react';
 import { Dachshund } from './components/Dachshund';
-import { Kitchen } from './components/Kitchen';
-import { Bathroom } from './components/Bathroom';
-import { Bedroom } from './components/Bedroom';
+import { RoomBackground } from './components/Rooms/RoomBackground';
 import { Shop } from './components/Shop';
 import { MinigamesHub } from './components/Minigames/MinigamesHub';
 import { PetState, RoomType } from './types/pet';
@@ -28,12 +22,13 @@ const INITIAL_PET_STATE: PetState = {
   hunger: 70,
   happiness: 85,
   energy: 80,
-  cleanliness: 80,
+  cleanliness: 75,
   isSleeping: false,
-  coins: 50, // 50 moedinhas de presente de boas-vindas!
+  coins: 60,
   inventory: {
     kibble: 4,
     meat_treat: 2,
+    big_bone: 1,
     carrot: 2,
   },
   lastFed: new Date().toISOString(),
@@ -41,8 +36,16 @@ const INITIAL_PET_STATE: PetState = {
   lastCleaned: new Date().toISOString(),
   lastSlept: new Date().toISOString(),
   lastActionBy: 'Sistema',
-  lastActionText: 'Romeu está com o rabinho abanando de felicidade!',
+  lastActionText: 'Romeu está super feliz em ver vocês dois!',
 };
+
+const ROOMS: { id: RoomType; name: string }[] = [
+  { id: 'kitchen', name: 'Cozinha' },
+  { id: 'bathroom', name: 'Banheiro' },
+  { id: 'bedroom', name: 'Quarto' },
+  { id: 'living', name: 'Sala' },
+  { id: 'garden', name: 'Jardim' },
+];
 
 export const App: React.FC = () => {
   const [pet, setPet] = useState<PetState>(() => {
@@ -54,14 +57,19 @@ export const App: React.FC = () => {
         ...INITIAL_PET_STATE,
         ...parsed,
         inventory: { ...INITIAL_PET_STATE.inventory, ...(parsed.inventory || {}) },
-        coins: typeof parsed.coins === 'number' ? parsed.coins : 50,
+        coins: typeof parsed.coins === 'number' ? parsed.coins : 60,
       };
     } catch {
       return INITIAL_PET_STATE;
     }
   });
 
-  const [currentRoom, setCurrentRoom] = useState<RoomType>('living');
+  const [currentRoomIndex, setCurrentRoomIndex] = useState(0); // 0 = Cozinha, 1 = Banheiro, etc.
+  const [isShopOpen, setIsShopOpen] = useState(false);
+  const [isMinigamesOpen, setIsMinigamesOpen] = useState(false);
+
+  const [selectedFoodIndex, setSelectedFoodIndex] = useState(0);
+  const [bubblesCount, setBubblesCount] = useState(0);
   const [currentUser, setCurrentUser] = useState<string>(() => {
     return localStorage.getItem('salsicha_pet_user') || 'Brenno';
   });
@@ -69,6 +77,21 @@ export const App: React.FC = () => {
   const [actionEffect, setActionEffect] = useState<string | null>(null);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [isConnected, setIsConnected] = useState(isSupabaseConfigured);
+
+  const currentRoom = ROOMS[currentRoomIndex].id;
+
+  // Navegar entre os cômodos como no Pou (< e >)
+  const prevRoom = () => {
+    setIsShopOpen(false);
+    setIsMinigamesOpen(false);
+    setCurrentRoomIndex((prev) => (prev === 0 ? ROOMS.length - 1 : prev - 1));
+  };
+
+  const nextRoom = () => {
+    setIsShopOpen(false);
+    setIsMinigamesOpen(false);
+    setCurrentRoomIndex((prev) => (prev === ROOMS.length - 1 ? 0 : prev + 1));
+  };
 
   // Salvar no localStorage sempre que mudar
   useEffect(() => {
@@ -79,7 +102,7 @@ export const App: React.FC = () => {
     localStorage.setItem('salsicha_pet_user', currentUser);
   }, [currentUser]);
 
-  // Conexão em tempo real com Supabase (quando configurado)
+  // Conexão em tempo real com Supabase
   useEffect(() => {
     const client = supabase;
     if (!client || !isSupabaseConfigured) {
@@ -144,55 +167,103 @@ export const App: React.FC = () => {
     }, 1200);
   };
 
-  // Carinho direto (única ação livre e imediata na Sala)
+  // Fazer Carinho
   const handlePet = async () => {
     const updated = {
       ...pet,
-      happiness: Math.min(100, pet.happiness + 12),
+      happiness: Math.min(100, pet.happiness + 10),
       lastActionBy: currentUser,
-      lastActionText: `${currentUser} fez muito carinho na barriguinha 💖`,
+      lastActionText: `${currentUser} fez carinho no Romeu 💖`,
     };
     triggerEffect('heart');
     if (updated.happiness >= 95) {
-      confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
+      confetti({ particleCount: 30, spread: 60 });
     }
     setPet(updated);
     await syncToSupabase(updated);
   };
 
-  // Alimentar escolhendo item do estoque na Cozinha
-  const handleFeedItem = async (itemId: string) => {
-    const currentQty = pet.inventory[itemId] || 0;
-    if (currentQty <= 0) return;
+  // Alimentar (Estilo Pou)
+  const currentFood = FOOD_ITEMS[selectedFoodIndex];
+  const currentFoodStock = pet.inventory[currentFood.id] || 0;
 
-    const itemDef = FOOD_ITEMS.find((f) => f.id === itemId);
-    if (!itemDef) return;
-
-    const updated: PetState = {
-      ...pet,
-      hunger: Math.min(100, pet.hunger + itemDef.hungerRestore),
-      happiness: Math.min(100, pet.happiness + itemDef.happinessBonus),
-      inventory: {
-        ...pet.inventory,
-        [itemId]: currentQty - 1,
-      },
-      lastActionBy: currentUser,
-      lastActionText: `${currentUser} deu ${itemDef.name} ${itemDef.emoji} para o Romeu!`,
-    };
-
-    triggerEffect('food');
-    confetti({ particleCount: 20, spread: 45 });
-    setPet(updated);
-    await syncToSupabase(updated);
-  };
-
-  // Comprar item na Lojinha com Moedas
-  const handleBuyItem = async (itemId: string, price: number) => {
-    if (pet.coins < price) {
-      alert('Moedas insuficientes! Joguem minigames para faturar moedas juntos 🎮');
+  const handleFeedCurrentFood = async () => {
+    if (currentFoodStock <= 0) {
+      setIsShopOpen(true);
+      return;
+    }
+    if (pet.hunger >= 100) {
+      alert(`${pet.name} já está empanturrado de comida! 😋`);
       return;
     }
 
+    const updated: PetState = {
+      ...pet,
+      hunger: Math.min(100, pet.hunger + currentFood.hungerRestore),
+      happiness: Math.min(100, pet.happiness + currentFood.happinessBonus),
+      inventory: {
+        ...pet.inventory,
+        [currentFood.id]: currentFoodStock - 1,
+      },
+      lastActionBy: currentUser,
+      lastActionText: `${currentUser} alimentou com ${currentFood.name} ${currentFood.emoji}`,
+    };
+
+    triggerEffect('food');
+    confetti({ particleCount: 20, spread: 40 });
+    setPet(updated);
+    await syncToSupabase(updated);
+  };
+
+  // Banho (Estilo Pou com Sabonete e Chuveiro)
+  const handleSoap = () => {
+    setBubblesCount((prev) => Math.min(10, prev + 2));
+  };
+
+  const handleShower = async () => {
+    if (bubblesCount < 3) {
+      alert('Passe o sabonete no Romeu para ensaboar primeiro! 🧼');
+      return;
+    }
+    setBubblesCount(0);
+    const updated: PetState = {
+      ...pet,
+      cleanliness: 100,
+      happiness: Math.min(100, pet.happiness + 10),
+      lastActionBy: currentUser,
+      lastActionText: `${currentUser} deu um banho gostoso no Romeu 🚿🫧`,
+    };
+    triggerEffect('bath');
+    confetti({ particleCount: 30, spread: 50 });
+    setPet(updated);
+    await syncToSupabase(updated);
+  };
+
+  // Quarto (Abajur estilo Pou)
+  const handleToggleSleep = async () => {
+    const isSleepingNow = !pet.isSleeping;
+    const updated: PetState = {
+      ...pet,
+      isSleeping: isSleepingNow,
+      energy: isSleepingNow ? pet.energy : 100,
+      lastActionBy: currentUser,
+      lastActionText: isSleepingNow
+        ? `${currentUser} apagou o abajur para o Romeu dormir 💤`
+        : `${currentUser} acendeu o abajur e acordou o Romeu! ☀️`,
+    };
+    if (!isSleepingNow) {
+      confetti({ particleCount: 30, spread: 60 });
+    }
+    setPet(updated);
+    await syncToSupabase(updated);
+  };
+
+  // Loja
+  const handleBuyItem = async (itemId: string, price: number) => {
+    if (pet.coins < price) {
+      alert('Moedas insuficientes! Joguem minigames para faturar moedas 🎮');
+      return;
+    }
     const itemDef = FOOD_ITEMS.find((f) => f.id === itemId);
     const updated: PetState = {
       ...pet,
@@ -202,10 +273,9 @@ export const App: React.FC = () => {
         [itemId]: (pet.inventory[itemId] || 0) + 1,
       },
       lastActionBy: currentUser,
-      lastActionText: `${currentUser} comprou ${itemDef?.name || 'comida'} no mercadinho! 🛍️`,
+      lastActionText: `${currentUser} comprou ${itemDef?.name || 'comida'} no mercadinho 🛍️`,
     };
-
-    confetti({ particleCount: 25, spread: 50 });
+    confetti({ particleCount: 20, spread: 45 });
     setPet(updated);
     await syncToSupabase(updated);
   };
@@ -216,379 +286,425 @@ export const App: React.FC = () => {
       ...pet,
       coins: pet.coins + amount,
       lastActionBy: currentUser,
-      lastActionText: `${currentUser} jogou minigame e faturou +${amount} moedas! 🪙`,
+      lastActionText: `${currentUser} faturou +${amount} moedas no minigame! 🪙`,
     };
     setPet(updated);
     await syncToSupabase(updated);
-  };
-
-  // Banho concluído no Banheiro
-  const handleFinishBath = async () => {
-    const updated: PetState = {
-      ...pet,
-      cleanliness: 100,
-      happiness: Math.min(100, pet.happiness + 10),
-      lastActionBy: currentUser,
-      lastActionText: `${currentUser} deu um banho quentinho e perfumado 🛁🫧`,
-    };
-    triggerEffect('bath');
-    setPet(updated);
-    await syncToSupabase(updated);
-  };
-
-  // Dormir / Acordar no Quarto
-  const handleToggleSleep = async () => {
-    const isSleepingNow = !pet.isSleeping;
-    const updated: PetState = {
-      ...pet,
-      isSleeping: isSleepingNow,
-      energy: isSleepingNow ? pet.energy : 100,
-      lastActionBy: currentUser,
-      lastActionText: isSleepingNow
-        ? `${currentUser} apagou o abajur e pôs ${pet.name} para nanar 💤`
-        : `${currentUser} acendeu o abajur e acordou ${pet.name} cheio de energia! ☀️`,
-    };
-    setPet(updated);
-    await syncToSupabase(updated);
-  };
-
-  const getStatusColor = (val: number) => {
-    if (val > 60) return 'bg-emerald-500';
-    if (val > 30) return 'bg-amber-500';
-    return 'bg-rose-500';
   };
 
   return (
-    <div
-      className={`min-h-screen flex flex-col justify-between max-w-md mx-auto transition-colors duration-700 ${
-        pet.isSleeping
-          ? 'bg-slate-900 text-slate-100'
-          : 'bg-gradient-to-b from-amber-100 via-orange-50 to-amber-100 text-amber-950'
-      } shadow-2xl relative select-none pb-2`}
-    >
-      {/* Top Bar / Header com Nome, Moedas e Conexão */}
-      <header className="p-3 pt-5 flex items-center justify-between border-b border-amber-200/50 backdrop-blur-xs">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <h1 className="text-xl font-black tracking-tight">{pet.name}</h1>
-            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-800 border border-amber-400/30">
-              Salsichinha 🐾
-            </span>
-          </div>
-          <p className="text-[10px] opacity-75">Cuidado com amor por vocês dois</p>
-        </div>
+    <div className="w-full h-screen max-w-md mx-auto flex flex-col justify-between relative select-none overflow-hidden font-sans border-x border-slate-300 shadow-2xl bg-amber-50">
+      
+      {/* ================= FUNDO DO CÔMODO ATUAL ================= */}
+      <RoomBackground room={currentRoom} isSleeping={pet.isSleeping} />
 
-        {/* Saldo de Moedas & Status Online */}
-        <div className="flex items-center gap-2">
-          {/* Contador de Moedas */}
+      {/* ================= BARRA SUPERIOR RETRÔ ESTILO POU ================= */}
+      <header className="relative z-10 px-3 pt-3 pb-2 flex flex-col gap-2">
+        {/* Linha 1: Moedas + Status Clássicos em Quadradinhos do Pou */}
+        <div className="flex items-center justify-between gap-1.5">
+          {/* Moedas (Pou coin icon com fundo amarelo e botão de +) */}
           <button
-            onClick={() => setCurrentRoom('shop')}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500 text-white font-black text-xs shadow-xs hover:bg-amber-600 active:scale-95 transition-all"
+            onClick={() => setIsShopOpen(true)}
+            className="flex items-center gap-1.5 bg-yellow-400 hover:bg-yellow-500 active:scale-95 px-2.5 py-1 rounded-xl border-2 border-amber-600 shadow-md text-amber-950 font-black text-xs transition-transform"
           >
-            <Coins size={14} className="text-amber-200" />
+            <div className="w-5 h-5 rounded-full bg-yellow-300 border border-amber-600 flex items-center justify-center text-[10px] font-black shadow-inner">
+              $
+            </div>
             <span>{pet.coins}</span>
+            <span className="text-[10px] bg-emerald-600 text-white rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">
+              +
+            </span>
           </button>
 
-          {/* Status da Conexão */}
+          {/* 4 Status em Quadradinhos com Borda Grossa do Pou */}
+          <div className="flex items-center gap-1.5">
+            {/* Fome 🍗 */}
+            <div className="w-9 h-9 bg-white rounded-xl border-2 border-slate-800 shadow-md flex flex-col items-center justify-center relative overflow-hidden">
+              <span className="text-xs z-10">🍗</span>
+              <div
+                className="absolute bottom-0 w-full bg-amber-500 transition-all duration-300"
+                style={{ height: `${pet.hunger}%`, opacity: 0.35 }}
+              />
+              <span className="text-[8px] font-black z-10 text-slate-900 leading-none">
+                {pet.hunger}%
+              </span>
+            </div>
+
+            {/* Amor / Felicidade 💖 */}
+            <div className="w-9 h-9 bg-white rounded-xl border-2 border-slate-800 shadow-md flex flex-col items-center justify-center relative overflow-hidden">
+              <span className="text-xs z-10">💖</span>
+              <div
+                className="absolute bottom-0 w-full bg-rose-500 transition-all duration-300"
+                style={{ height: `${pet.happiness}%`, opacity: 0.35 }}
+              />
+              <span className="text-[8px] font-black z-10 text-slate-900 leading-none">
+                {pet.happiness}%
+              </span>
+            </div>
+
+            {/* Energia ⚡ */}
+            <div className="w-9 h-9 bg-white rounded-xl border-2 border-slate-800 shadow-md flex flex-col items-center justify-center relative overflow-hidden">
+              <span className="text-xs z-10">⚡</span>
+              <div
+                className="absolute bottom-0 w-full bg-cyan-500 transition-all duration-300"
+                style={{ height: `${pet.energy}%`, opacity: 0.35 }}
+              />
+              <span className="text-[8px] font-black z-10 text-slate-900 leading-none">
+                {pet.energy}%
+              </span>
+            </div>
+
+            {/* Higiene 🫧 */}
+            <div className="w-9 h-9 bg-white rounded-xl border-2 border-slate-800 shadow-md flex flex-col items-center justify-center relative overflow-hidden">
+              <span className="text-xs z-10">🫧</span>
+              <div
+                className="absolute bottom-0 w-full bg-sky-500 transition-all duration-300"
+                style={{ height: `${pet.cleanliness}%`, opacity: 0.35 }}
+              />
+              <span className="text-[8px] font-black z-10 text-slate-900 leading-none">
+                {pet.cleanliness}%
+              </span>
+            </div>
+          </div>
+
+          {/* Jogador Ativo (Casal) */}
+          <div className="flex bg-white/90 p-0.5 rounded-xl border-2 border-slate-800 shadow-md">
+            <button
+              onClick={() => setCurrentUser((u) => (u === 'Brenno' ? 'Meu Amor' : 'Brenno'))}
+              className="px-2 py-1 rounded-lg font-black text-[10px] bg-rose-500 text-white flex items-center gap-1 active:scale-95 transition-all"
+            >
+              <UserCheck size={11} />
+              <span>{currentUser === 'Brenno' ? 'Brenno' : 'Amor'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Linha 2: Header de Navegação de Cômodo com Setas do Pou: < Cozinha > */}
+        <div className="flex items-center justify-between">
           <button
             onClick={() => setShowSyncModal(true)}
-            className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold shadow-xs transition-all ${
-              isConnected
-                ? 'bg-emerald-500/15 text-emerald-700 border border-emerald-400/40'
-                : 'bg-amber-500/20 text-amber-800 border border-amber-400/40'
-            }`}
+            className="w-8 h-8 rounded-xl bg-white border-2 border-slate-800 shadow-md flex items-center justify-center active:scale-95"
+            title="Conexão Online"
           >
             {isConnected ? (
-              <Wifi size={12} className="text-emerald-600" />
+              <Wifi size={16} className="text-emerald-600" />
             ) : (
-              <WifiOff size={12} className="text-amber-700" />
+              <WifiOff size={16} className="text-amber-600" />
             )}
-            <span>{isConnected ? 'Online' : 'Local'}</span>
+          </button>
+
+          {/* Seletor Central de Cômodo Estilo Pou */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={prevRoom}
+              className="w-8 h-8 rounded-xl bg-white border-2 border-slate-800 shadow-md flex items-center justify-center active:scale-95 hover:bg-slate-100 transition-all"
+            >
+              <ChevronLeft size={22} className="text-slate-800" strokeWidth={3} />
+            </button>
+
+            <div className="bg-white px-4 py-1 rounded-xl border-2 border-slate-800 shadow-md min-w-[120px] text-center">
+              <span className="font-black text-sm text-slate-800 tracking-wide uppercase">
+                {ROOMS[currentRoomIndex].name}
+              </span>
+            </div>
+
+            <button
+              onClick={nextRoom}
+              className="w-8 h-8 rounded-xl bg-white border-2 border-slate-800 shadow-md flex items-center justify-center active:scale-95 hover:bg-slate-100 transition-all"
+            >
+              <ChevronRight size={22} className="text-slate-800" strokeWidth={3} />
+            </button>
+          </div>
+
+          {/* Botão de Loja rápida no topo */}
+          <button
+            onClick={() => setIsShopOpen(true)}
+            className="w-8 h-8 rounded-xl bg-white border-2 border-slate-800 shadow-md flex items-center justify-center active:scale-95"
+            title="Loja"
+          >
+            <ShoppingBag size={16} className="text-rose-600" />
           </button>
         </div>
       </header>
 
-      {/* Alternador Rápido: Quem está jogando no momento? */}
-      <div className="px-3 py-1.5 flex items-center justify-between text-xs bg-amber-200/30 backdrop-blur-xs border-b border-amber-300/30">
-        <div className="flex items-center gap-1 font-semibold text-[11px] opacity-80">
-          <UserCheck size={13} />
-          <span>Jogando:</span>
+      {/* ================= CORPO CENTRAL COM O SALSICHINHA ================= */}
+      <main className="flex-1 relative flex flex-col justify-center items-center z-10 px-4">
+        {/* Bolhas de banho ativas no banheiro */}
+        {currentRoom === 'bathroom' && bubblesCount > 0 && (
+          <div className="absolute inset-0 pointer-events-none flex justify-around items-center opacity-85 z-20">
+            {Array.from({ length: bubblesCount }).map((_, i) => (
+              <span
+                key={i}
+                className="text-3xl animate-bounce"
+                style={{ animationDelay: `${i * 150}ms` }}
+              >
+                🫧
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* O Cachorrinho Salsicha Animado */}
+        <Dachshund
+          isSleeping={pet.isSleeping}
+          actionEffect={actionEffect}
+          happiness={pet.happiness}
+          onPet={handlePet}
+        />
+
+        {/* Notificaçãozinha de última ação fofa */}
+        <div className="mt-2 px-3 py-1 bg-white/90 rounded-full border-2 border-slate-800 shadow-md text-center max-w-[280px]">
+          <p className="text-[11px] font-bold text-slate-800 flex items-center justify-center gap-1">
+            <Sparkles size={12} className="text-amber-500 shrink-0" />
+            <span className="truncate">{pet.lastActionText}</span>
+          </p>
         </div>
-        <div className="flex bg-white/70 p-0.5 rounded-lg border border-amber-300/40 shadow-xs">
-          <button
-            onClick={() => setCurrentUser('Brenno')}
-            className={`px-2.5 py-0.5 rounded-md font-bold text-xs transition-all ${
-              currentUser === 'Brenno'
-                ? 'bg-amber-500 text-white shadow-xs'
-                : 'text-amber-900 opacity-60 hover:opacity-100'
-            }`}
-          >
-            Brenno 👨‍💻
-          </button>
-          <button
-            onClick={() => setCurrentUser('Meu Amor')}
-            className={`px-2.5 py-0.5 rounded-md font-bold text-xs transition-all ${
-              currentUser === 'Meu Amor'
-                ? 'bg-rose-500 text-white shadow-xs'
-                : 'text-amber-900 opacity-60 hover:opacity-100'
-            }`}
-          >
-            Meu Amor 💖
-          </button>
-        </div>
-      </div>
-
-      {/* Mini Barras de Status Vitais */}
-      <div className="px-3 py-1.5 grid grid-cols-4 gap-1.5 text-[10px] font-bold">
-        {/* Fome */}
-        <div className="bg-white/80 p-1.5 rounded-xl border border-amber-200 shadow-xs">
-          <div className="flex justify-between mb-0.5">
-            <span>🍖 Fome</span>
-            <span>{pet.hunger}%</span>
-          </div>
-          <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 ${getStatusColor(pet.hunger)}`}
-              style={{ width: `${pet.hunger}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Felicidade */}
-        <div className="bg-white/80 p-1.5 rounded-xl border border-amber-200 shadow-xs">
-          <div className="flex justify-between mb-0.5">
-            <span>💖 Amor</span>
-            <span>{pet.happiness}%</span>
-          </div>
-          <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 ${getStatusColor(pet.happiness)}`}
-              style={{ width: `${pet.happiness}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Energia */}
-        <div className="bg-white/80 p-1.5 rounded-xl border border-amber-200 shadow-xs">
-          <div className="flex justify-between mb-0.5">
-            <span>⚡ Sono</span>
-            <span>{pet.energy}%</span>
-          </div>
-          <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 ${getStatusColor(pet.energy)}`}
-              style={{ width: `${pet.energy}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Banho */}
-        <div className="bg-white/80 p-1.5 rounded-xl border border-amber-200 shadow-xs">
-          <div className="flex justify-between mb-0.5">
-            <span>🫧 Banho</span>
-            <span>{pet.cleanliness}%</span>
-          </div>
-          <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 ${getStatusColor(pet.cleanliness)}`}
-              style={{ width: `${pet.cleanliness}%` }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Conteúdo Central Dinâmico pelo Cômodo Atual */}
-      <main className="flex-1 flex flex-col justify-center items-center px-4 my-2 relative overflow-y-auto">
-        {/* Cachorrinho visível nos cômodos da casa */}
-        {currentRoom !== 'minigames' && currentRoom !== 'shop' && (
-          <div className="w-full mb-2">
-            <Dachshund
-              isSleeping={pet.isSleeping}
-              actionEffect={actionEffect}
-              happiness={pet.happiness}
-              onPet={handlePet}
-            />
-          </div>
-        )}
-
-        {/* Cômodo 1: Sala de Estar (Carinho e Relaxamento) */}
-        {currentRoom === 'living' && (
-          <div className="w-full flex flex-col items-center">
-            {/* Banner da última ação */}
-            <div className="px-4 py-2 rounded-2xl bg-white/80 backdrop-blur-xs border border-amber-200 shadow-xs text-center max-w-xs">
-              <p className="text-xs font-semibold text-amber-950 flex items-center justify-center gap-1.5">
-                <Sparkles size={14} className="text-amber-500 shrink-0" />
-                <span>{pet.lastActionText}</span>
-              </p>
-            </div>
-
-            {/* Dica de carinho */}
-            <p className="text-[11px] text-amber-800/80 font-medium mt-3 text-center">
-              Dê carinho tocando no cachorrinho ou explore os outros cômodos abaixo! 🐾
-            </p>
-          </div>
-        )}
-
-        {/* Cômodo 2: Cozinha (Estoque, Alimentação e Tigela) */}
-        {currentRoom === 'kitchen' && (
-          <Kitchen
-            pet={pet}
-            onFeedItem={handleFeedItem}
-            onOpenShop={() => setCurrentRoom('shop')}
-          />
-        )}
-
-        {/* Cômodo 3: Banheiro (Esponja e Chuveirinho) */}
-        {currentRoom === 'bathroom' && (
-          <Bathroom pet={pet} onFinishBath={handleFinishBath} />
-        )}
-
-        {/* Cômodo 4: Quarto (Abajur e Soneca) */}
-        {currentRoom === 'bedroom' && (
-          <Bedroom pet={pet} onToggleSleep={handleToggleSleep} />
-        )}
-
-        {/* Minigames do Casal */}
-        {currentRoom === 'minigames' && (
-          <MinigamesHub
-            coins={pet.coins}
-            onEarnCoins={handleEarnCoins}
-            onBack={() => setCurrentRoom('living')}
-          />
-        )}
-
-        {/* Loja / Mercadinho */}
-        {currentRoom === 'shop' && (
-          <Shop
-            pet={pet}
-            onBuyItem={handleBuyItem}
-            onGoToMinigames={() => setCurrentRoom('minigames')}
-            onBack={() => setCurrentRoom('kitchen')}
-          />
-        )}
       </main>
 
-      {/* Barra de Navegação dos Cômodos e Minigames */}
-      <nav className="px-3 pt-1">
-        <div className="bg-white/95 backdrop-blur-md p-1.5 rounded-3xl border border-amber-300 shadow-lg grid grid-cols-6 gap-1">
-          {/* Sala */}
-          <button
-            onClick={() => setCurrentRoom('living')}
-            className={`flex flex-col items-center justify-center py-1.5 rounded-2xl transition-all ${
-              currentRoom === 'living'
-                ? 'bg-amber-500 text-white shadow-sm'
-                : 'text-amber-900 opacity-60 hover:opacity-100'
-            }`}
-          >
-            <Home size={18} />
-            <span className="text-[9px] font-bold mt-0.5">Sala</span>
-          </button>
+      {/* ================= BARRA INFERIOR INTERATIVA ESTILO POU ================= */}
+      <footer className="relative z-10 px-4 pb-4">
+        
+        {/* 1. SE ESTIVER NA COZINHA (Estilo Prateleira do Pou) */}
+        {currentRoom === 'kitchen' && (
+          <div className="flex items-center justify-between gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+            {/* Prateleira / Geladeira */}
+            <button
+              onClick={() => setIsShopOpen(true)}
+              className="flex flex-col items-center justify-center w-14 h-14 bg-amber-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+            >
+              <span className="text-xl">🥫</span>
+              <span className="text-[9px] font-black text-slate-800">Dispensa</span>
+            </button>
 
-          {/* Cozinha */}
-          <button
-            onClick={() => setCurrentRoom('kitchen')}
-            className={`flex flex-col items-center justify-center py-1.5 rounded-2xl transition-all relative ${
-              currentRoom === 'kitchen'
-                ? 'bg-amber-500 text-white shadow-sm'
-                : 'text-amber-900 opacity-60 hover:opacity-100'
-            }`}
-          >
-            <UtensilsCrossed size={18} />
-            <span className="text-[9px] font-bold mt-0.5">Cozinha</span>
-          </button>
+            {/* Seletor e Botão de Dar a Comida Selecionada */}
+            <div className="flex-1 flex items-center justify-between bg-amber-50 px-2 py-1 rounded-xl border-2 border-amber-300">
+              <button
+                onClick={() =>
+                  setSelectedFoodIndex((prev) =>
+                    prev === 0 ? FOOD_ITEMS.length - 1 : prev - 1
+                  )
+                }
+                className="p-1 rounded-lg hover:bg-amber-200 active:scale-90"
+              >
+                <ChevronLeft size={20} className="text-slate-800" strokeWidth={3} />
+              </button>
 
-          {/* Banho */}
-          <button
-            onClick={() => setCurrentRoom('bathroom')}
-            className={`flex flex-col items-center justify-center py-1.5 rounded-2xl transition-all ${
-              currentRoom === 'bathroom'
-                ? 'bg-amber-500 text-white shadow-sm'
-                : 'text-amber-900 opacity-60 hover:opacity-100'
-            }`}
-          >
-            <Bath size={18} />
-            <span className="text-[9px] font-bold mt-0.5">Banho</span>
-          </button>
+              <button
+                onClick={handleFeedCurrentFood}
+                className="flex flex-col items-center active:scale-95 transition-transform"
+              >
+                <span className="text-3xl drop-shadow-sm">{currentFood.emoji}</span>
+                <span className="text-[11px] font-black text-slate-800">
+                  {currentFood.name}
+                </span>
+                <span
+                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
+                    currentFoodStock > 0
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-rose-500 text-white'
+                  }`}
+                >
+                  {currentFoodStock > 0 ? `Estoque: x${currentFoodStock}` : 'Comprar na Loja'}
+                </span>
+              </button>
 
-          {/* Quarto */}
-          <button
-            onClick={() => setCurrentRoom('bedroom')}
-            className={`flex flex-col items-center justify-center py-1.5 rounded-2xl transition-all ${
-              currentRoom === 'bedroom'
-                ? 'bg-amber-500 text-white shadow-sm'
-                : 'text-amber-900 opacity-60 hover:opacity-100'
-            }`}
-          >
-            <Moon size={18} />
-            <span className="text-[9px] font-bold mt-0.5">Quarto</span>
-          </button>
+              <button
+                onClick={() =>
+                  setSelectedFoodIndex((prev) =>
+                    prev === FOOD_ITEMS.length - 1 ? 0 : prev + 1
+                  )
+                }
+                className="p-1 rounded-lg hover:bg-amber-200 active:scale-90"
+              >
+                <ChevronRight size={20} className="text-slate-800" strokeWidth={3} />
+              </button>
+            </div>
 
-          {/* Minigames */}
-          <button
-            onClick={() => setCurrentRoom('minigames')}
-            className={`flex flex-col items-center justify-center py-1.5 rounded-2xl transition-all ${
-              currentRoom === 'minigames'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-purple-900 opacity-70 hover:opacity-100'
-            }`}
-          >
-            <Gamepad2 size={18} />
-            <span className="text-[9px] font-bold mt-0.5">Jogos</span>
-          </button>
+            {/* Loja */}
+            <button
+              onClick={() => setIsShopOpen(true)}
+              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+            >
+              <span className="text-xl">🏪</span>
+              <span className="text-[9px] font-black text-slate-800">Loja</span>
+            </button>
+          </div>
+        )}
 
-          {/* Loja */}
-          <button
-            onClick={() => setCurrentRoom('shop')}
-            className={`flex flex-col items-center justify-center py-1.5 rounded-2xl transition-all ${
-              currentRoom === 'shop'
-                ? 'bg-orange-500 text-white shadow-sm'
-                : 'text-orange-900 opacity-70 hover:opacity-100'
-            }`}
-          >
-            <ShoppingBag size={18} />
-            <span className="text-[9px] font-bold mt-0.5">Loja</span>
-          </button>
+        {/* 2. SE ESTIVER NO BANHEIRO (Chuveiro + Sabonete como no print do Pou) */}
+        {currentRoom === 'bathroom' && (
+          <div className="flex items-center justify-around gap-3 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+            {/* Chuveiro */}
+            <button
+              onClick={handleShower}
+              className="flex flex-col items-center justify-center flex-1 h-14 bg-sky-100 hover:bg-sky-200 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform"
+            >
+              <span className="text-2xl">🚿</span>
+              <span className="text-[10px] font-black text-slate-800">Chuveiro</span>
+            </button>
+
+            {/* Sabonete do Pou */}
+            <button
+              onClick={handleSoap}
+              className="flex flex-col items-center justify-center flex-1 h-14 bg-blue-500 hover:bg-blue-600 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform text-white"
+            >
+              <span className="text-2xl">🧼</span>
+              <span className="text-[10px] font-black">
+                {bubblesCount >= 3 ? 'Ensabooado!' : 'Sabonete'}
+              </span>
+            </button>
+
+            {/* Loja */}
+            <button
+              onClick={() => setIsShopOpen(true)}
+              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+            >
+              <span className="text-xl">🏪</span>
+              <span className="text-[9px] font-black text-slate-800">Loja</span>
+            </button>
+          </div>
+        )}
+
+        {/* 3. SE ESTIVER NO QUARTO (Abajur estilo Pou) */}
+        {currentRoom === 'bedroom' && (
+          <div className="flex items-center justify-around gap-3 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+            {/* Abajur / Luz */}
+            <button
+              onClick={handleToggleSleep}
+              className={`flex items-center justify-center gap-2 flex-1 h-14 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 transition-all font-black text-xs ${
+                pet.isSleeping
+                  ? 'bg-amber-400 text-slate-900 animate-pulse'
+                  : 'bg-indigo-900 text-white'
+              }`}
+            >
+              <span className="text-2xl">{pet.isSleeping ? '☀️' : '💡'}</span>
+              <span>{pet.isSleeping ? 'Acender Abajur (Acordar)' : 'Apagar Abajur (Dormir)'}</span>
+            </button>
+
+            {/* Loja */}
+            <button
+              onClick={() => setIsShopOpen(true)}
+              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+            >
+              <span className="text-xl">🏪</span>
+              <span className="text-[9px] font-black text-slate-800">Loja</span>
+            </button>
+          </div>
+        )}
+
+        {/* 4. SE ESTIVER NO JARDIM (Minigames como no Pou) */}
+        {currentRoom === 'garden' && (
+          <div className="flex items-center justify-around gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+            {/* Minigames */}
+            <button
+              onClick={() => setIsMinigamesOpen(true)}
+              className="flex items-center justify-center gap-2 flex-1 h-14 bg-purple-600 hover:bg-purple-700 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 text-white font-black text-xs"
+            >
+              <span className="text-2xl">🎮</span>
+              <span>Jogar Minigames (Ganhar Moedas)</span>
+            </button>
+
+            {/* Loja */}
+            <button
+              onClick={() => setIsShopOpen(true)}
+              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+            >
+              <span className="text-xl">🏪</span>
+              <span className="text-[9px] font-black text-slate-800">Loja</span>
+            </button>
+          </div>
+        )}
+
+        {/* 5. SE ESTIVER NA SALA (Carinho e Diário) */}
+        {currentRoom === 'living' && (
+          <div className="flex items-center justify-around gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+            {/* Fazer Carinho */}
+            <button
+              onClick={handlePet}
+              className="flex items-center justify-center gap-2 flex-1 h-14 bg-rose-500 hover:bg-rose-600 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 text-white font-black text-xs"
+            >
+              <span className="text-2xl">💖</span>
+              <span>Fazer Muito Carinho</span>
+            </button>
+
+            {/* Loja */}
+            <button
+              onClick={() => setIsShopOpen(true)}
+              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+            >
+              <span className="text-xl">🏪</span>
+              <span className="text-[9px] font-black text-slate-800">Loja</span>
+            </button>
+          </div>
+        )}
+      </footer>
+
+      {/* ================= MODAL DA LOJA / MERCADINHO ================= */}
+      {isShopOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-4 max-w-sm w-full max-h-[85vh] overflow-y-auto border-4 border-slate-800 shadow-2xl">
+            <Shop
+              pet={pet}
+              onBuyItem={handleBuyItem}
+              onGoToMinigames={() => {
+                setIsShopOpen(false);
+                setIsMinigamesOpen(true);
+              }}
+              onBack={() => setIsShopOpen(false)}
+            />
+          </div>
         </div>
-      </nav>
+      )}
 
-      {/* Modal de Conexão Online */}
+      {/* ================= MODAL DOS MINIGAMES ================= */}
+      {isMinigamesOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-4 max-w-sm w-full max-h-[90vh] overflow-y-auto border-4 border-slate-800 shadow-2xl">
+            <MinigamesHub
+              coins={pet.coins}
+              onEarnCoins={handleEarnCoins}
+              onBack={() => setIsMinigamesOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL DE CONEXÃO ONLINE ================= */}
       {showSyncModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-slate-800 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 max-w-sm w-full border-4 border-slate-800 shadow-2xl space-y-3">
+            <div className="flex items-center justify-between border-b pb-2">
               <div className="flex items-center gap-2">
                 <Wifi className="text-amber-500" size={20} />
-                <h3 className="font-bold text-lg">Modo Conectado 🐾</h3>
+                <h3 className="font-black text-base">Modo Conectado 🐾</h3>
               </div>
               <button
                 onClick={() => setShowSyncModal(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold px-2 text-xl"
+                className="text-slate-400 hover:text-slate-600 font-black text-lg"
               >
                 ✕
               </button>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Para você e sua namorada jogarem no mesmo cachorrinho em tempo real de celulares diferentes, basta conectar ao <strong>Supabase</strong> gratuito!
+              Para você e sua namorada jogarem no mesmo cachorrinho em tempo real de celulares diferentes, conectamos com o <strong>Supabase</strong> gratuito!
             </p>
 
-            <div className="space-y-2 text-xs bg-amber-50 p-3 rounded-2xl border border-amber-200">
-              <p className="font-semibold text-amber-900">Como ativar o multiplayer:</p>
-              <ol className="list-decimal pl-4 space-y-1 text-amber-800">
-                <li>Crie um projeto gratuito em <strong>supabase.com</strong>.</li>
-                <li>Copie a <strong>Project URL</strong> e <strong>Anon Key</strong>.</li>
-                <li>Adicione no arquivo <code>.env</code> do projeto ou na Vercel.</li>
+            <div className="bg-amber-50 p-2.5 rounded-2xl border border-amber-200 text-[11px] text-amber-900 space-y-1">
+              <p className="font-black">Passo a passo rápido:</p>
+              <ol className="list-decimal pl-4 space-y-0.5">
+                <li>Crie projeto no <strong>supabase.com</strong>.</li>
+                <li>Rode o script <code>supabase_schema.sql</code>.</li>
+                <li>Coloque as chaves no <code>.env</code>.</li>
               </ol>
             </div>
 
-            <div className="pt-2">
-              <button
-                onClick={() => setShowSyncModal(false)}
-                className="w-full py-3 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold rounded-2xl shadow-md transition-all text-sm"
-              >
-                Continuar Jogando!
-              </button>
-            </div>
+            <button
+              onClick={() => setShowSyncModal(false)}
+              className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-black rounded-xl text-xs shadow-md"
+            >
+              Continuar Jogando!
+            </button>
           </div>
         </div>
       )}

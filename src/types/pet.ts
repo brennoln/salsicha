@@ -16,7 +16,7 @@ export interface PetState {
   energy: number;     // 0 a 100
   cleanliness: number;// 0 a 100
   isSleeping: boolean;
-  coins: number;      // Moeda do jogo (Patas / PetCoins)
+  coins: number;      // Moeda do jogo
   inventory: Record<string, number>; // id do item -> quantidade
   lastFed: string;
   lastPlayed: string;
@@ -26,6 +26,6 @@ export interface PetState {
   lastActionText: string;
 }
 
-export type RoomType = 'living' | 'kitchen' | 'bathroom' | 'bedroom' | 'minigames' | 'shop';
+export type RoomType = 'kitchen' | 'bathroom' | 'bedroom' | 'living' | 'garden' | 'shop';
 
 export type PetActionType = 'feed' | 'pet' | 'play' | 'sleep' | 'wake' | 'bath';
