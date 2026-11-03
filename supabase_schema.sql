@@ -22,17 +22,23 @@ CREATE POLICY "Permitir atualização pública" ON public.pets
 -- 3. Habilitar Realtime para a tabela pets
 ALTER PUBLICATION supabase_realtime ADD TABLE public.pets;
 
--- 4. Inserir estado inicial do Romeu (o cachorrinho salsicha)
+-- 4. Inserir estado inicial do Romeu (com moedas e inventário)
 INSERT INTO public.pets (id, state)
 VALUES (
   'primary_pet',
   '{
     "name": "Romeu",
-    "hunger": 80,
+    "hunger": 70,
     "happiness": 85,
-    "energy": 70,
-    "cleanliness": 90,
+    "energy": 80,
+    "cleanliness": 80,
     "isSleeping": false,
+    "coins": 50,
+    "inventory": {
+      "kibble": 4,
+      "meat_treat": 2,
+      "carrot": 2
+    },
     "lastFed": "2026-11-03T12:00:00.000Z",
     "lastPlayed": "2026-11-03T12:00:00.000Z",
     "lastCleaned": "2026-11-03T12:00:00.000Z",
@@ -41,4 +47,5 @@ VALUES (
     "lastActionText": "Romeu acabou de chegar para ser amado por vocês!"
   }'::jsonb
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE
+SET state = EXCLUDED.state;
