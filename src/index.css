@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Animações personalizadas fofas */
+@keyframes wag {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(18deg); }
+  75% { transform: rotate(-18deg); }
+}
+
+@keyframes ear-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px) rotate(4deg); }
+}
+
+.animate-wag {
+  animation: wag 0.4s infinite ease-in-out;
+  transform-origin: bottom left;
+}
+
+.animate-ear {
+  animation: ear-bounce 1.2s infinite ease-in-out;
+}
