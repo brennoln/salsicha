@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import {
   Wifi,
@@ -64,12 +65,15 @@ export const App: React.FC = () => {
     }
   });
 
-  const [currentRoomIndex, setCurrentRoomIndex] = useState(0); // 0 = Cozinha, 1 = Banheiro, etc.
+  const [currentRoomIndex, setCurrentRoomIndex] = useState(0);
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [isMinigamesOpen, setIsMinigamesOpen] = useState(false);
 
   const [selectedFoodIndex, setSelectedFoodIndex] = useState(0);
   const [bubblesCount, setBubblesCount] = useState(0);
+  const [isHoveredByItem, setIsHoveredByItem] = useState(false);
+  const [isWaterSpraying, setIsWaterSpraying] = useState(false);
+
   const [currentUser, setCurrentUser] = useState<string>(() => {
     return localStorage.getItem('salsicha_pet_user') || 'Brenno';
   });
@@ -80,16 +84,17 @@ export const App: React.FC = () => {
 
   const currentRoom = ROOMS[currentRoomIndex].id;
 
-  // Navegar entre os cômodos como no Pou (< e >)
   const prevRoom = () => {
     setIsShopOpen(false);
     setIsMinigamesOpen(false);
+    setIsHoveredByItem(false);
     setCurrentRoomIndex((prev) => (prev === 0 ? ROOMS.length - 1 : prev - 1));
   };
 
   const nextRoom = () => {
     setIsShopOpen(false);
     setIsMinigamesOpen(false);
+    setIsHoveredByItem(false);
     setCurrentRoomIndex((prev) => (prev === ROOMS.length - 1 ? 0 : prev + 1));
   };
 
@@ -167,6 +172,19 @@ export const App: React.FC = () => {
     }, 1200);
   };
 
+  // Checar colisão do item arrastado com o cachorrinho
+  const isPointOverDog = (point: { x: number; y: number }) => {
+    const dogEl = document.getElementById('dog-target-zone');
+    if (!dogEl) return false;
+    const rect = dogEl.getBoundingClientRect();
+    return (
+      point.x >= rect.left - 25 &&
+      point.x <= rect.right + 25 &&
+      point.y >= rect.top - 25 &&
+      point.y <= rect.bottom + 25
+    );
+  };
+
   // Fazer Carinho
   const handlePet = async () => {
     const updated = {
@@ -183,17 +201,17 @@ export const App: React.FC = () => {
     await syncToSupabase(updated);
   };
 
-  // Alimentar (Estilo Pou)
+  // Alimentar (Arrastando ou Clicando)
   const currentFood = FOOD_ITEMS[selectedFoodIndex];
   const currentFoodStock = pet.inventory[currentFood.id] || 0;
 
-  const handleFeedCurrentFood = async () => {
+  const handleFeedFood = async () => {
     if (currentFoodStock <= 0) {
       setIsShopOpen(true);
       return;
     }
     if (pet.hunger >= 100) {
-      alert(`${pet.name} já está empanturrado de comida! 😋`);
+      alert(`${pet.name} já está empanturrado! 😋`);
       return;
     }
 
@@ -206,35 +224,75 @@ export const App: React.FC = () => {
         [currentFood.id]: currentFoodStock - 1,
       },
       lastActionBy: currentUser,
-      lastActionText: `${currentUser} alimentou com ${currentFood.name} ${currentFood.emoji}`,
+      lastActionText: `${currentUser} deu ${currentFood.name} ${currentFood.emoji} para o Romeu!`,
     };
 
     triggerEffect('food');
-    confetti({ particleCount: 20, spread: 40 });
+    confetti({ particleCount: 25, spread: 45 });
     setPet(updated);
     await syncToSupabase(updated);
   };
 
-  // Banho (Estilo Pou com Sabonete e Chuveiro)
-  const handleSoap = () => {
-    setBubblesCount((prev) => Math.min(10, prev + 2));
+  // Arrastando a comida até o cachorrinho
+  const handleFoodDrag = (_: any, info: any) => {
+    const hovering = isPointOverDog(info.point);
+    setIsHoveredByItem(hovering);
   };
 
-  const handleShower = async () => {
-    if (bubblesCount < 3) {
-      alert('Passe o sabonete no Romeu para ensaboar primeiro! 🧼');
-      return;
+  const handleFoodDragEnd = (_: any, info: any) => {
+    setIsHoveredByItem(false);
+    if (isPointOverDog(info.point)) {
+      handleFeedFood();
     }
-    setBubblesCount(0);
+  };
+
+  // Arrastando o sabonete pelo corpo do salsicha (cria espumas conforme passa nele!)
+  const handleSoapDrag = (_: any, info: any) => {
+    if (isPointOverDog(info.point)) {
+      setIsHoveredByItem(true);
+      setBubblesCount((prev) => Math.min(14, prev + 1));
+    } else {
+      setIsHoveredByItem(false);
+    }
+  };
+
+  const handleSoapDragEnd = () => {
+    setIsHoveredByItem(false);
+  };
+
+  // Arrastando o chuveirinho com água jorrando (lava as espumas!)
+  const handleShowerDrag = (_: any, info: any) => {
+    if (isPointOverDog(info.point)) {
+      setIsWaterSpraying(true);
+      setIsHoveredByItem(true);
+      setBubblesCount((prev) => {
+        const next = Math.max(0, prev - 1);
+        if (next === 0 && bubblesCount > 0) {
+          finishBath();
+        }
+        return next;
+      });
+    } else {
+      setIsWaterSpraying(false);
+      setIsHoveredByItem(false);
+    }
+  };
+
+  const handleShowerDragEnd = () => {
+    setIsWaterSpraying(false);
+    setIsHoveredByItem(false);
+  };
+
+  const finishBath = async () => {
     const updated: PetState = {
       ...pet,
       cleanliness: 100,
-      happiness: Math.min(100, pet.happiness + 10),
+      happiness: Math.min(100, pet.happiness + 15),
       lastActionBy: currentUser,
-      lastActionText: `${currentUser} deu um banho gostoso no Romeu 🚿🫧`,
+      lastActionText: `${currentUser} ensaboou e deu banho gostoso no Romeu 🚿🫧`,
     };
     triggerEffect('bath');
-    confetti({ particleCount: 30, spread: 50 });
+    confetti({ particleCount: 35, spread: 55 });
     setPet(updated);
     await syncToSupabase(updated);
   };
@@ -302,7 +360,7 @@ export const App: React.FC = () => {
       <header className="relative z-10 px-3 pt-3 pb-2 flex flex-col gap-2">
         {/* Linha 1: Moedas + Status Clássicos em Quadradinhos do Pou */}
         <div className="flex items-center justify-between gap-1.5">
-          {/* Moedas (Pou coin icon com fundo amarelo e botão de +) */}
+          {/* Moedas */}
           <button
             onClick={() => setIsShopOpen(true)}
             className="flex items-center gap-1.5 bg-yellow-400 hover:bg-yellow-500 active:scale-95 px-2.5 py-1 rounded-xl border-2 border-amber-600 shadow-md text-amber-950 font-black text-xs transition-transform"
@@ -379,7 +437,7 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Linha 2: Header de Navegação de Cômodo com Setas do Pou: < Cozinha > */}
+        {/* Linha 2: Header de Navegação de Cômodo do Pou: < Cozinha > */}
         <div className="flex items-center justify-between">
           <button
             onClick={() => setShowSyncModal(true)}
@@ -393,7 +451,7 @@ export const App: React.FC = () => {
             )}
           </button>
 
-          {/* Seletor Central de Cômodo Estilo Pou */}
+          {/* Seletor Central */}
           <div className="flex items-center gap-2">
             <button
               onClick={prevRoom}
@@ -416,7 +474,7 @@ export const App: React.FC = () => {
             </button>
           </div>
 
-          {/* Botão de Loja rápida no topo */}
+          {/* Botão de Loja rápida */}
           <button
             onClick={() => setIsShopOpen(true)}
             className="w-8 h-8 rounded-xl bg-white border-2 border-slate-800 shadow-md flex items-center justify-center active:scale-95"
@@ -429,30 +487,40 @@ export const App: React.FC = () => {
 
       {/* ================= CORPO CENTRAL COM O SALSICHINHA ================= */}
       <main className="flex-1 relative flex flex-col justify-center items-center z-10 px-4">
-        {/* Bolhas de banho ativas no banheiro */}
+        {/* Espumas de Sabão no Cachorrinho (Banheiro) */}
         {currentRoom === 'bathroom' && bubblesCount > 0 && (
-          <div className="absolute inset-0 pointer-events-none flex justify-around items-center opacity-85 z-20">
-            {Array.from({ length: bubblesCount }).map((_, i) => (
-              <span
-                key={i}
-                className="text-3xl animate-bounce"
-                style={{ animationDelay: `${i * 150}ms` }}
-              >
-                🫧
-              </span>
-            ))}
+          <div className="absolute inset-0 pointer-events-none flex justify-center items-center z-25">
+            <div className="relative w-64 h-48 flex flex-wrap justify-around items-center opacity-90">
+              {Array.from({ length: bubblesCount }).map((_, i) => (
+                <span
+                  key={i}
+                  className="text-3xl animate-bounce"
+                  style={{ animationDelay: `${i * 120}ms` }}
+                >
+                  🫧
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* O Cachorrinho Salsicha Animado */}
+        {/* Jatos de Água do Chuveirinho */}
+        {isWaterSpraying && (
+          <div className="absolute inset-0 pointer-events-none flex justify-center items-center z-30">
+            <div className="text-4xl animate-pulse">💦💦💦</div>
+          </div>
+        )}
+
+        {/* Cachorrinho Salsicha Animado */}
         <Dachshund
           isSleeping={pet.isSleeping}
           actionEffect={actionEffect}
           happiness={pet.happiness}
+          isHoveredByItem={isHoveredByItem}
           onPet={handlePet}
         />
 
-        {/* Notificaçãozinha de última ação fofa */}
+        {/* Notificaçãozinha de ação */}
         <div className="mt-2 px-3 py-1 bg-white/90 rounded-full border-2 border-slate-800 shadow-md text-center max-w-[280px]">
           <p className="text-[11px] font-bold text-slate-800 flex items-center justify-center gap-1">
             <Sparkles size={12} className="text-amber-500 shrink-0" />
@@ -461,13 +529,12 @@ export const App: React.FC = () => {
         </div>
       </main>
 
-      {/* ================= BARRA INFERIOR INTERATIVA ESTILO POU ================= */}
+      {/* ================= BARRA INFERIOR INTERATIVA E ARRASTÁVEL ================= */}
       <footer className="relative z-10 px-4 pb-4">
         
-        {/* 1. SE ESTIVER NA COZINHA (Estilo Prateleira do Pou) */}
+        {/* 1. COZINHA (Prateleira com item arrastável até a boca do cachorro!) */}
         {currentRoom === 'kitchen' && (
           <div className="flex items-center justify-between gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
-            {/* Prateleira / Geladeira */}
             <button
               onClick={() => setIsShopOpen(true)}
               className="flex flex-col items-center justify-center w-14 h-14 bg-amber-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
@@ -476,8 +543,8 @@ export const App: React.FC = () => {
               <span className="text-[9px] font-black text-slate-800">Dispensa</span>
             </button>
 
-            {/* Seletor e Botão de Dar a Comida Selecionada */}
-            <div className="flex-1 flex items-center justify-between bg-amber-50 px-2 py-1 rounded-xl border-2 border-amber-300">
+            {/* Área da Comida Arrastável */}
+            <div className="flex-1 flex items-center justify-between bg-amber-50 px-2 py-1 rounded-xl border-2 border-amber-300 relative">
               <button
                 onClick={() =>
                   setSelectedFoodIndex((prev) =>
@@ -489,24 +556,30 @@ export const App: React.FC = () => {
                 <ChevronLeft size={20} className="text-slate-800" strokeWidth={3} />
               </button>
 
-              <button
-                onClick={handleFeedCurrentFood}
-                className="flex flex-col items-center active:scale-95 transition-transform"
+              {/* Item de Comida Arrastável com Framer Motion */}
+              <motion.div
+                drag
+                dragSnapToOrigin={true}
+                whileDrag={{ scale: 1.35, zIndex: 60, cursor: 'grabbing' }}
+                onDrag={handleFoodDrag}
+                onDragEnd={handleFoodDragEnd}
+                onClick={handleFeedFood}
+                className="flex flex-col items-center cursor-grab touch-none p-1 rounded-xl hover:bg-amber-100 active:scale-95 transition-transform"
               >
-                <span className="text-3xl drop-shadow-sm">{currentFood.emoji}</span>
-                <span className="text-[11px] font-black text-slate-800">
+                <span className="text-3xl drop-shadow-md select-none">{currentFood.emoji}</span>
+                <span className="text-[10px] font-black text-slate-800 leading-tight">
                   {currentFood.name}
                 </span>
                 <span
-                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
+                  className={`text-[8px] font-black px-1.5 py-0.2 rounded-full ${
                     currentFoodStock > 0
                       ? 'bg-amber-500 text-white'
                       : 'bg-rose-500 text-white'
                   }`}
                 >
-                  {currentFoodStock > 0 ? `Estoque: x${currentFoodStock}` : 'Comprar na Loja'}
+                  {currentFoodStock > 0 ? `Arraste! (x${currentFoodStock})` : 'Comprar na Loja'}
                 </span>
-              </button>
+              </motion.div>
 
               <button
                 onClick={() =>
@@ -520,7 +593,6 @@ export const App: React.FC = () => {
               </button>
             </div>
 
-            {/* Loja */}
             <button
               onClick={() => setIsShopOpen(true)}
               className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
@@ -531,30 +603,37 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 2. SE ESTIVER NO BANHEIRO (Chuveiro + Sabonete como no print do Pou) */}
+        {/* 2. BANHEIRO (Sabonete arrastável que faz espuma e Chuveiro arrastável que enxagua!) */}
         {currentRoom === 'bathroom' && (
-          <div className="flex items-center justify-around gap-3 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
-            {/* Chuveiro */}
-            <button
-              onClick={handleShower}
-              className="flex flex-col items-center justify-center flex-1 h-14 bg-sky-100 hover:bg-sky-200 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform"
+          <div className="flex items-center justify-around gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+            {/* Chuveirinho Arrastável */}
+            <motion.div
+              drag
+              dragSnapToOrigin={true}
+              whileDrag={{ scale: 1.3, zIndex: 60, cursor: 'grabbing' }}
+              onDrag={handleShowerDrag}
+              onDragEnd={handleShowerDragEnd}
+              className="flex flex-col items-center justify-center flex-1 h-14 bg-sky-100 hover:bg-sky-200 rounded-xl border-2 border-slate-800 shadow-xs cursor-grab touch-none"
             >
-              <span className="text-2xl">🚿</span>
-              <span className="text-[10px] font-black text-slate-800">Chuveiro</span>
-            </button>
+              <span className="text-2xl select-none">🚿</span>
+              <span className="text-[9px] font-black text-slate-800">Arraste p/ Enxaguar</span>
+            </motion.div>
 
-            {/* Sabonete do Pou */}
-            <button
-              onClick={handleSoap}
-              className="flex flex-col items-center justify-center flex-1 h-14 bg-blue-500 hover:bg-blue-600 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform text-white"
+            {/* Sabonete Azul Arrastável do Pou */}
+            <motion.div
+              drag
+              dragSnapToOrigin={true}
+              whileDrag={{ scale: 1.35, zIndex: 60, cursor: 'grabbing' }}
+              onDrag={handleSoapDrag}
+              onDragEnd={handleSoapDragEnd}
+              className="flex flex-col items-center justify-center flex-1 h-14 bg-blue-500 hover:bg-blue-600 rounded-xl border-2 border-slate-800 shadow-xs cursor-grab touch-none text-white"
             >
-              <span className="text-2xl">🧼</span>
-              <span className="text-[10px] font-black">
-                {bubblesCount >= 3 ? 'Ensabooado!' : 'Sabonete'}
+              <span className="text-2xl select-none">🧼</span>
+              <span className="text-[9px] font-black">
+                {bubblesCount >= 10 ? '✨ Pronto p/ Chuveiro!' : 'Arraste no Romeu!'}
               </span>
-            </button>
+            </motion.div>
 
-            {/* Loja */}
             <button
               onClick={() => setIsShopOpen(true)}
               className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
@@ -565,10 +644,9 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 3. SE ESTIVER NO QUARTO (Abajur estilo Pou) */}
+        {/* 3. QUARTO (Abajur interativo do Pou) */}
         {currentRoom === 'bedroom' && (
           <div className="flex items-center justify-around gap-3 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
-            {/* Abajur / Luz */}
             <button
               onClick={handleToggleSleep}
               className={`flex items-center justify-center gap-2 flex-1 h-14 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 transition-all font-black text-xs ${
@@ -581,7 +659,6 @@ export const App: React.FC = () => {
               <span>{pet.isSleeping ? 'Acender Abajur (Acordar)' : 'Apagar Abajur (Dormir)'}</span>
             </button>
 
-            {/* Loja */}
             <button
               onClick={() => setIsShopOpen(true)}
               className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
@@ -592,19 +669,17 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 4. SE ESTIVER NO JARDIM (Minigames como no Pou) */}
+        {/* 4. JARDIM (Minigames) */}
         {currentRoom === 'garden' && (
           <div className="flex items-center justify-around gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
-            {/* Minigames */}
             <button
               onClick={() => setIsMinigamesOpen(true)}
               className="flex items-center justify-center gap-2 flex-1 h-14 bg-purple-600 hover:bg-purple-700 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 text-white font-black text-xs"
             >
               <span className="text-2xl">🎮</span>
-              <span>Jogar Minigames (Ganhar Moedas)</span>
+              <span>Jogar Minigames (4 Jogos)</span>
             </button>
 
-            {/* Loja */}
             <button
               onClick={() => setIsShopOpen(true)}
               className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
@@ -615,19 +690,28 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 5. SE ESTIVER NA SALA (Carinho e Diário) */}
+        {/* 5. SALA (Bolinha arrastável para brincar ou Carinho) */}
         {currentRoom === 'living' && (
           <div className="flex items-center justify-around gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
-            {/* Fazer Carinho */}
-            <button
+            {/* Bolinha arrastável de tênis */}
+            <motion.div
+              drag
+              dragSnapToOrigin={true}
+              whileDrag={{ scale: 1.3, zIndex: 60, cursor: 'grabbing' }}
+              onDrag={(_: any, info: any) => setIsHoveredByItem(isPointOverDog(info.point))}
+              onDragEnd={(_: any, info: any) => {
+                setIsHoveredByItem(false);
+                if (isPointOverDog(info.point)) {
+                  handlePet();
+                }
+              }}
               onClick={handlePet}
-              className="flex items-center justify-center gap-2 flex-1 h-14 bg-rose-500 hover:bg-rose-600 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 text-white font-black text-xs"
+              className="flex items-center justify-center gap-2 flex-1 h-14 bg-rose-500 hover:bg-rose-600 rounded-xl border-2 border-slate-800 shadow-xs cursor-grab touch-none text-white font-black text-xs"
             >
-              <span className="text-2xl">💖</span>
-              <span>Fazer Muito Carinho</span>
-            </button>
+              <span className="text-2xl select-none">🎾</span>
+              <span>Arraste a Bolinha ou Carinho!</span>
+            </motion.div>
 
-            {/* Loja */}
             <button
               onClick={() => setIsShopOpen(true)}
               className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
@@ -639,7 +723,7 @@ export const App: React.FC = () => {
         )}
       </footer>
 
-      {/* ================= MODAL DA LOJA / MERCADINHO ================= */}
+      {/* ================= MODAIS ================= */}
       {isShopOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-4 max-w-sm w-full max-h-[85vh] overflow-y-auto border-4 border-slate-800 shadow-2xl">
@@ -656,7 +740,6 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* ================= MODAL DOS MINIGAMES ================= */}
       {isMinigamesOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-4 max-w-sm w-full max-h-[90vh] overflow-y-auto border-4 border-slate-800 shadow-2xl">
@@ -669,7 +752,6 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* ================= MODAL DE CONEXÃO ONLINE ================= */}
       {showSyncModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-5 max-w-sm w-full border-4 border-slate-800 shadow-2xl space-y-3">
