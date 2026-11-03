@@ -72,7 +72,10 @@ export const App: React.FC = () => {
   const [selectedFoodIndex, setSelectedFoodIndex] = useState(0);
   const [bubblesCount, setBubblesCount] = useState(0);
   const [isHoveredByItem, setIsHoveredByItem] = useState(false);
-  const [isWaterSpraying, setIsWaterSpraying] = useState(false);
+
+  // Estados do Chuveiro e Água
+  const [isDraggingShower, setIsDraggingShower] = useState(false);
+  const [showerCoords, setShowerCoords] = useState<{ x: number; y: number } | null>(null);
 
   const [currentUser, setCurrentUser] = useState<string>(() => {
     return localStorage.getItem('salsicha_pet_user') || 'Brenno';
@@ -88,6 +91,7 @@ export const App: React.FC = () => {
     setIsShopOpen(false);
     setIsMinigamesOpen(false);
     setIsHoveredByItem(false);
+    setIsDraggingShower(false);
     setCurrentRoomIndex((prev) => (prev === 0 ? ROOMS.length - 1 : prev - 1));
   };
 
@@ -95,10 +99,10 @@ export const App: React.FC = () => {
     setIsShopOpen(false);
     setIsMinigamesOpen(false);
     setIsHoveredByItem(false);
+    setIsDraggingShower(false);
     setCurrentRoomIndex((prev) => (prev === ROOMS.length - 1 ? 0 : prev + 1));
   };
 
-  // Salvar no localStorage sempre que mudar
   useEffect(() => {
     localStorage.setItem('salsicha_pet_state', JSON.stringify(pet));
   }, [pet]);
@@ -172,16 +176,15 @@ export const App: React.FC = () => {
     }, 1200);
   };
 
-  // Checar colisão do item arrastado com o cachorrinho
   const isPointOverDog = (point: { x: number; y: number }) => {
     const dogEl = document.getElementById('dog-target-zone');
     if (!dogEl) return false;
     const rect = dogEl.getBoundingClientRect();
     return (
-      point.x >= rect.left - 25 &&
-      point.x <= rect.right + 25 &&
-      point.y >= rect.top - 25 &&
-      point.y <= rect.bottom + 25
+      point.x >= rect.left - 30 &&
+      point.x <= rect.right + 30 &&
+      point.y >= rect.top - 30 &&
+      point.y <= rect.bottom + 30
     );
   };
 
@@ -201,7 +204,7 @@ export const App: React.FC = () => {
     await syncToSupabase(updated);
   };
 
-  // Alimentar (Arrastando ou Clicando)
+  // Alimentar
   const currentFood = FOOD_ITEMS[selectedFoodIndex];
   const currentFoodStock = pet.inventory[currentFood.id] || 0;
 
@@ -224,7 +227,7 @@ export const App: React.FC = () => {
         [currentFood.id]: currentFoodStock - 1,
       },
       lastActionBy: currentUser,
-      lastActionText: `${currentUser} deu ${currentFood.name} ${currentFood.emoji} para o Romeu!`,
+      lastActionText: `${currentUser} deu ${currentFood.name} para o Romeu!`,
     };
 
     triggerEffect('food');
@@ -233,10 +236,9 @@ export const App: React.FC = () => {
     await syncToSupabase(updated);
   };
 
-  // Arrastando a comida até o cachorrinho
+  // Drag da comida
   const handleFoodDrag = (_: any, info: any) => {
-    const hovering = isPointOverDog(info.point);
-    setIsHoveredByItem(hovering);
+    setIsHoveredByItem(isPointOverDog(info.point));
   };
 
   const handleFoodDragEnd = (_: any, info: any) => {
@@ -246,11 +248,11 @@ export const App: React.FC = () => {
     }
   };
 
-  // Arrastando o sabonete pelo corpo do salsicha (cria espumas conforme passa nele!)
+  // Drag do Sabonete (Passa no cachorro e cria espuma de verdade!)
   const handleSoapDrag = (_: any, info: any) => {
     if (isPointOverDog(info.point)) {
       setIsHoveredByItem(true);
-      setBubblesCount((prev) => Math.min(14, prev + 1));
+      setBubblesCount((prev) => Math.min(16, prev + 1));
     } else {
       setIsHoveredByItem(false);
     }
@@ -260,10 +262,16 @@ export const App: React.FC = () => {
     setIsHoveredByItem(false);
   };
 
-  // Arrastando o chuveirinho com água jorrando (lava as espumas!)
+  // Drag do Chuveiro (Jorra água de verdade e lava a espuma!)
+  const handleShowerDragStart = () => {
+    setIsDraggingShower(true);
+  };
+
   const handleShowerDrag = (_: any, info: any) => {
+    setIsDraggingShower(true);
+    setShowerCoords({ x: info.point.x, y: info.point.y });
+
     if (isPointOverDog(info.point)) {
-      setIsWaterSpraying(true);
       setIsHoveredByItem(true);
       setBubblesCount((prev) => {
         const next = Math.max(0, prev - 1);
@@ -273,14 +281,14 @@ export const App: React.FC = () => {
         return next;
       });
     } else {
-      setIsWaterSpraying(false);
       setIsHoveredByItem(false);
     }
   };
 
   const handleShowerDragEnd = () => {
-    setIsWaterSpraying(false);
+    setIsDraggingShower(false);
     setIsHoveredByItem(false);
+    setShowerCoords(null);
   };
 
   const finishBath = async () => {
@@ -289,7 +297,7 @@ export const App: React.FC = () => {
       cleanliness: 100,
       happiness: Math.min(100, pet.happiness + 15),
       lastActionBy: currentUser,
-      lastActionText: `${currentUser} ensaboou e deu banho gostoso no Romeu 🚿🫧`,
+      lastActionText: `${currentUser} deu um banho bem cheiroso no Romeu 🚿🫧`,
     };
     triggerEffect('bath');
     confetti({ particleCount: 35, spread: 55 });
@@ -316,7 +324,6 @@ export const App: React.FC = () => {
     await syncToSupabase(updated);
   };
 
-  // Loja
   const handleBuyItem = async (itemId: string, price: number) => {
     if (pet.coins < price) {
       alert('Moedas insuficientes! Joguem minigames para faturar moedas 🎮');
@@ -338,7 +345,6 @@ export const App: React.FC = () => {
     await syncToSupabase(updated);
   };
 
-  // Ganhar moedas nos minigames
   const handleEarnCoins = async (amount: number) => {
     const updated: PetState = {
       ...pet,
@@ -353,12 +359,11 @@ export const App: React.FC = () => {
   return (
     <div className="w-full h-screen max-w-md mx-auto flex flex-col justify-between relative select-none overflow-hidden font-sans border-x border-slate-300 shadow-2xl bg-amber-50">
       
-      {/* ================= FUNDO DO CÔMODO ATUAL ================= */}
+      {/* ================= FUNDO DO CÔMODO ================= */}
       <RoomBackground room={currentRoom} isSleeping={pet.isSleeping} />
 
       {/* ================= BARRA SUPERIOR RETRÔ ESTILO POU ================= */}
       <header className="relative z-10 px-3 pt-3 pb-2 flex flex-col gap-2">
-        {/* Linha 1: Moedas + Status Clássicos em Quadradinhos do Pou */}
         <div className="flex items-center justify-between gap-1.5">
           {/* Moedas */}
           <button
@@ -374,9 +379,9 @@ export const App: React.FC = () => {
             </span>
           </button>
 
-          {/* 4 Status em Quadradinhos com Borda Grossa do Pou */}
+          {/* 4 Status Clássicos do Pou */}
           <div className="flex items-center gap-1.5">
-            {/* Fome 🍗 */}
+            {/* Fome */}
             <div className="w-9 h-9 bg-white rounded-xl border-2 border-slate-800 shadow-md flex flex-col items-center justify-center relative overflow-hidden">
               <span className="text-xs z-10">🍗</span>
               <div
@@ -388,7 +393,7 @@ export const App: React.FC = () => {
               </span>
             </div>
 
-            {/* Amor / Felicidade 💖 */}
+            {/* Amor */}
             <div className="w-9 h-9 bg-white rounded-xl border-2 border-slate-800 shadow-md flex flex-col items-center justify-center relative overflow-hidden">
               <span className="text-xs z-10">💖</span>
               <div
@@ -400,7 +405,7 @@ export const App: React.FC = () => {
               </span>
             </div>
 
-            {/* Energia ⚡ */}
+            {/* Energia */}
             <div className="w-9 h-9 bg-white rounded-xl border-2 border-slate-800 shadow-md flex flex-col items-center justify-center relative overflow-hidden">
               <span className="text-xs z-10">⚡</span>
               <div
@@ -412,7 +417,7 @@ export const App: React.FC = () => {
               </span>
             </div>
 
-            {/* Higiene 🫧 */}
+            {/* Higiene */}
             <div className="w-9 h-9 bg-white rounded-xl border-2 border-slate-800 shadow-md flex flex-col items-center justify-center relative overflow-hidden">
               <span className="text-xs z-10">🫧</span>
               <div
@@ -425,7 +430,7 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Jogador Ativo (Casal) */}
+          {/* Jogador Ativo */}
           <div className="flex bg-white/90 p-0.5 rounded-xl border-2 border-slate-800 shadow-md">
             <button
               onClick={() => setCurrentUser((u) => (u === 'Brenno' ? 'Meu Amor' : 'Brenno'))}
@@ -437,7 +442,7 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Linha 2: Header de Navegação de Cômodo do Pou: < Cozinha > */}
+        {/* Linha 2: Header de Navegação do Pou: < Cozinha > */}
         <div className="flex items-center justify-between">
           <button
             onClick={() => setShowSyncModal(true)}
@@ -451,7 +456,6 @@ export const App: React.FC = () => {
             )}
           </button>
 
-          {/* Seletor Central */}
           <div className="flex items-center gap-2">
             <button
               onClick={prevRoom}
@@ -474,7 +478,6 @@ export const App: React.FC = () => {
             </button>
           </div>
 
-          {/* Botão de Loja rápida */}
           <button
             onClick={() => setIsShopOpen(true)}
             className="w-8 h-8 rounded-xl bg-white border-2 border-slate-800 shadow-md flex items-center justify-center active:scale-95"
@@ -487,14 +490,14 @@ export const App: React.FC = () => {
 
       {/* ================= CORPO CENTRAL COM O SALSICHINHA ================= */}
       <main className="flex-1 relative flex flex-col justify-center items-center z-10 px-4">
-        {/* Espumas de Sabão no Cachorrinho (Banheiro) */}
+        {/* Espumas de Sabão grudadas no corpo do Cachorrinho (Banheiro) */}
         {currentRoom === 'bathroom' && bubblesCount > 0 && (
           <div className="absolute inset-0 pointer-events-none flex justify-center items-center z-25">
-            <div className="relative w-64 h-48 flex flex-wrap justify-around items-center opacity-90">
+            <div className="relative w-64 h-36 flex flex-wrap justify-around items-center opacity-90">
               {Array.from({ length: bubblesCount }).map((_, i) => (
                 <span
                   key={i}
-                  className="text-3xl animate-bounce"
+                  className="text-3xl animate-bounce filter drop-shadow"
                   style={{ animationDelay: `${i * 120}ms` }}
                 >
                   🫧
@@ -504,14 +507,27 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Jatos de Água do Chuveirinho */}
-        {isWaterSpraying && (
-          <div className="absolute inset-0 pointer-events-none flex justify-center items-center z-30">
-            <div className="text-4xl animate-pulse">💦💦💦</div>
+        {/* Jatos de Água Corrente que caem do Chuveiro */}
+        {isDraggingShower && (
+          <div
+            className="fixed pointer-events-none z-50 flex flex-col items-center"
+            style={{
+              left: showerCoords ? `${showerCoords.x}px` : '50%',
+              top: showerCoords ? `${showerCoords.y + 15}px` : '40%',
+              transform: 'translateX(-50%)',
+            }}
+          >
+            {/* Jatos de água animados descendo */}
+            <div className="flex gap-2">
+              <span className="text-xl animate-bounce text-sky-400">💧</span>
+              <span className="text-2xl animate-pulse text-sky-300">💦</span>
+              <span className="text-xl animate-bounce text-sky-400" style={{ animationDelay: '100ms' }}>💧</span>
+            </div>
+            <div className="w-12 h-24 bg-gradient-to-b from-sky-400/60 to-transparent blur-xs rounded-full transform scale-y-125" />
           </div>
         )}
 
-        {/* Cachorrinho Salsicha Animado */}
+        {/* Cachorrinho Salsicha */}
         <Dachshund
           isSleeping={pet.isSleeping}
           actionEffect={actionEffect}
@@ -520,7 +536,7 @@ export const App: React.FC = () => {
           onPet={handlePet}
         />
 
-        {/* Notificaçãozinha de ação */}
+        {/* Notificaçãozinha discreta de status */}
         <div className="mt-2 px-3 py-1 bg-white/90 rounded-full border-2 border-slate-800 shadow-md text-center max-w-[280px]">
           <p className="text-[11px] font-bold text-slate-800 flex items-center justify-center gap-1">
             <Sparkles size={12} className="text-amber-500 shrink-0" />
@@ -529,55 +545,47 @@ export const App: React.FC = () => {
         </div>
       </main>
 
-      {/* ================= BARRA INFERIOR INTERATIVA E ARRASTÁVEL ================= */}
+      {/* ================= BARRA INFERIOR (OBJETOS VISUAIS PUROS SEM TEXTO) ================= */}
       <footer className="relative z-10 px-4 pb-4">
         
-        {/* 1. COZINHA (Prateleira com item arrastável até a boca do cachorro!) */}
+        {/* 1. COZINHA (Prateleira com a comidinha em si para arrastar) */}
         {currentRoom === 'kitchen' && (
-          <div className="flex items-center justify-between gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+          <div className="flex items-center justify-between gap-3 bg-white/80 backdrop-blur-md px-3 py-2 rounded-3xl border-2 border-slate-800 shadow-lg">
+            {/* Prateleira / Dispensa */}
             <button
               onClick={() => setIsShopOpen(true)}
-              className="flex flex-col items-center justify-center w-14 h-14 bg-amber-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+              className="flex items-center justify-center w-12 h-12 bg-amber-100 hover:bg-amber-200 rounded-2xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform"
             >
-              <span className="text-xl">🥫</span>
-              <span className="text-[9px] font-black text-slate-800">Dispensa</span>
+              <span className="text-2xl select-none">🥫</span>
             </button>
 
-            {/* Área da Comida Arrastável */}
-            <div className="flex-1 flex items-center justify-between bg-amber-50 px-2 py-1 rounded-xl border-2 border-amber-300 relative">
+            {/* A comidinha visual em si (sem botões ou caixas de texto gigantes) */}
+            <div className="flex-1 flex items-center justify-between px-2">
               <button
                 onClick={() =>
                   setSelectedFoodIndex((prev) =>
                     prev === 0 ? FOOD_ITEMS.length - 1 : prev - 1
                   )
                 }
-                className="p-1 rounded-lg hover:bg-amber-200 active:scale-90"
+                className="w-8 h-8 rounded-full bg-white/90 border border-slate-300 flex items-center justify-center active:scale-90 shadow-xs"
               >
-                <ChevronLeft size={20} className="text-slate-800" strokeWidth={3} />
+                <ChevronLeft size={18} className="text-slate-700" strokeWidth={3} />
               </button>
 
-              {/* Item de Comida Arrastável com Framer Motion */}
+              {/* Item de Comida Puro Arrastável */}
               <motion.div
                 drag
                 dragSnapToOrigin={true}
-                whileDrag={{ scale: 1.35, zIndex: 60, cursor: 'grabbing' }}
+                whileDrag={{ scale: 1.4, zIndex: 60, cursor: 'grabbing' }}
                 onDrag={handleFoodDrag}
                 onDragEnd={handleFoodDragEnd}
                 onClick={handleFeedFood}
-                className="flex flex-col items-center cursor-grab touch-none p-1 rounded-xl hover:bg-amber-100 active:scale-95 transition-transform"
+                className="relative flex flex-col items-center cursor-grab touch-none p-2 active:scale-95"
               >
-                <span className="text-3xl drop-shadow-md select-none">{currentFood.emoji}</span>
-                <span className="text-[10px] font-black text-slate-800 leading-tight">
-                  {currentFood.name}
-                </span>
-                <span
-                  className={`text-[8px] font-black px-1.5 py-0.2 rounded-full ${
-                    currentFoodStock > 0
-                      ? 'bg-amber-500 text-white'
-                      : 'bg-rose-500 text-white'
-                  }`}
-                >
-                  {currentFoodStock > 0 ? `Arraste! (x${currentFoodStock})` : 'Comprar na Loja'}
+                <span className="text-4xl drop-shadow-md select-none">{currentFood.emoji}</span>
+                {/* Badge de quantidade discreto */}
+                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-white shadow-xs">
+                  x{currentFoodStock}
                 </span>
               </motion.div>
 
@@ -587,117 +595,168 @@ export const App: React.FC = () => {
                     prev === FOOD_ITEMS.length - 1 ? 0 : prev + 1
                   )
                 }
-                className="p-1 rounded-lg hover:bg-amber-200 active:scale-90"
+                className="w-8 h-8 rounded-full bg-white/90 border border-slate-300 flex items-center justify-center active:scale-90 shadow-xs"
               >
-                <ChevronRight size={20} className="text-slate-800" strokeWidth={3} />
+                <ChevronRight size={18} className="text-slate-700" strokeWidth={3} />
               </button>
             </div>
 
+            {/* Mercadinho */}
             <button
               onClick={() => setIsShopOpen(true)}
-              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+              className="flex items-center justify-center w-12 h-12 bg-rose-100 hover:bg-rose-200 rounded-2xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform"
             >
-              <span className="text-xl">🏪</span>
-              <span className="text-[9px] font-black text-slate-800">Loja</span>
+              <span className="text-2xl select-none">🏪</span>
             </button>
           </div>
         )}
 
-        {/* 2. BANHEIRO (Sabonete arrastável que faz espuma e Chuveiro arrastável que enxagua!) */}
+        {/* 2. BANHEIRO (Itens puros: Chuveiro real e Sabonete 3D do Pou!) */}
         {currentRoom === 'bathroom' && (
-          <div className="flex items-center justify-around gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
-            {/* Chuveirinho Arrastável */}
+          <div className="flex items-center justify-around gap-4 bg-white/80 backdrop-blur-md px-4 py-2 rounded-3xl border-2 border-slate-800 shadow-lg">
+            {/* O Chuveiro Real Arrastável (Como no Pou) */}
             <motion.div
               drag
               dragSnapToOrigin={true}
-              whileDrag={{ scale: 1.3, zIndex: 60, cursor: 'grabbing' }}
+              whileDrag={{ scale: 1.25, zIndex: 60, cursor: 'grabbing' }}
+              onDragStart={handleShowerDragStart}
               onDrag={handleShowerDrag}
               onDragEnd={handleShowerDragEnd}
-              className="flex flex-col items-center justify-center flex-1 h-14 bg-sky-100 hover:bg-sky-200 rounded-xl border-2 border-slate-800 shadow-xs cursor-grab touch-none"
+              className="cursor-grab touch-none flex items-center justify-center p-1 active:scale-95"
             >
-              <span className="text-2xl select-none">🚿</span>
-              <span className="text-[9px] font-black text-slate-800">Arraste p/ Enxaguar</span>
+              {/* Ilustração SVG de Chuveirinho Real com Água */}
+              <div className="relative w-14 h-14 flex items-center justify-center">
+                <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md">
+                  {/* Cabo do chuveiro */}
+                  <path
+                    d="M 25 85 Q 28 35 62 25 L 75 35"
+                    fill="none"
+                    stroke="#fbbf24"
+                    strokeWidth="9"
+                    strokeLinecap="round"
+                  />
+                  {/* Cabeça do chuveiro */}
+                  <ellipse
+                    cx="74"
+                    cy="38"
+                    rx="16"
+                    ry="9"
+                    fill="#d97706"
+                    transform="rotate(35 74 38)"
+                  />
+                  <ellipse
+                    cx="75"
+                    cy="39"
+                    rx="14"
+                    ry="7"
+                    fill="#fef08a"
+                    transform="rotate(35 75 39)"
+                  />
+                  {/* Furos do chuveiro */}
+                  <circle cx="72" cy="38" r="1.5" fill="#78350f" />
+                  <circle cx="76" cy="40" r="1.5" fill="#78350f" />
+                  <circle cx="78" cy="37" r="1.5" fill="#78350f" />
+                </svg>
+              </div>
             </motion.div>
 
-            {/* Sabonete Azul Arrastável do Pou */}
+            {/* O Sabonete 3D Puro Arrastável (Idêntico ao Pou!) */}
             <motion.div
               drag
               dragSnapToOrigin={true}
               whileDrag={{ scale: 1.35, zIndex: 60, cursor: 'grabbing' }}
               onDrag={handleSoapDrag}
               onDragEnd={handleSoapDragEnd}
-              className="flex flex-col items-center justify-center flex-1 h-14 bg-blue-500 hover:bg-blue-600 rounded-xl border-2 border-slate-800 shadow-xs cursor-grab touch-none text-white"
+              className="cursor-grab touch-none flex items-center justify-center p-1 active:scale-95"
             >
-              <span className="text-2xl select-none">🧼</span>
-              <span className="text-[9px] font-black">
-                {bubblesCount >= 10 ? '✨ Pronto p/ Chuveiro!' : 'Arraste no Romeu!'}
-              </span>
+              {/* Barra de Sabonete 3D estilizada como no Pou */}
+              <div className="relative w-16 h-12 flex items-center justify-center">
+                <svg viewBox="0 0 100 65" className="w-full h-full drop-shadow-md">
+                  {/* Corpo do Sabonete azul com relevo */}
+                  <rect x="5" y="10" width="90" height="48" rx="24" fill="#0284c7" />
+                  <rect x="8" y="8" width="84" height="44" rx="22" fill="#38bdf8" />
+                  {/* Brilho superior */}
+                  <ellipse cx="50" cy="20" rx="36" ry="9" fill="#7dd3fc" opacity="0.8" />
+                  <ellipse cx="38" cy="17" rx="14" ry="4" fill="#ffffff" opacity="0.8" />
+                  {/* Gravação da palavra SOAP no sabonete */}
+                  <text
+                    x="50"
+                    y="36"
+                    fontSize="11"
+                    fontWeight="900"
+                    fill="#0369a1"
+                    textAnchor="middle"
+                    letterSpacing="1"
+                  >
+                    SOAP
+                  </text>
+                  {/* Pequenas bolhas presas ao sabonete */}
+                  <circle cx="82" cy="15" r="5" fill="#ffffff" opacity="0.8" />
+                  <circle cx="87" cy="20" r="3.5" fill="#ffffff" opacity="0.9" />
+                </svg>
+              </div>
             </motion.div>
 
+            {/* Loja */}
             <button
               onClick={() => setIsShopOpen(true)}
-              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+              className="flex items-center justify-center w-12 h-12 bg-rose-100 hover:bg-rose-200 rounded-2xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform"
             >
-              <span className="text-xl">🏪</span>
-              <span className="text-[9px] font-black text-slate-800">Loja</span>
+              <span className="text-2xl select-none">🏪</span>
             </button>
           </div>
         )}
 
-        {/* 3. QUARTO (Abajur interativo do Pou) */}
+        {/* 3. QUARTO (Abajur Puro que Acende / Apaga) */}
         {currentRoom === 'bedroom' && (
-          <div className="flex items-center justify-around gap-3 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+          <div className="flex items-center justify-around gap-4 bg-white/80 backdrop-blur-md px-4 py-2 rounded-3xl border-2 border-slate-800 shadow-lg">
             <button
               onClick={handleToggleSleep}
-              className={`flex items-center justify-center gap-2 flex-1 h-14 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 transition-all font-black text-xs ${
+              className={`flex items-center justify-center w-16 h-14 rounded-2xl border-2 border-slate-800 shadow-md active:scale-95 transition-all ${
                 pet.isSleeping
                   ? 'bg-amber-400 text-slate-900 animate-pulse'
                   : 'bg-indigo-900 text-white'
               }`}
             >
-              <span className="text-2xl">{pet.isSleeping ? '☀️' : '💡'}</span>
-              <span>{pet.isSleeping ? 'Acender Abajur (Acordar)' : 'Apagar Abajur (Dormir)'}</span>
+              <span className="text-3xl select-none">{pet.isSleeping ? '☀️' : '💡'}</span>
             </button>
 
             <button
               onClick={() => setIsShopOpen(true)}
-              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+              className="flex items-center justify-center w-12 h-12 bg-rose-100 hover:bg-rose-200 rounded-2xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform"
             >
-              <span className="text-xl">🏪</span>
-              <span className="text-[9px] font-black text-slate-800">Loja</span>
+              <span className="text-2xl select-none">🏪</span>
             </button>
           </div>
         )}
 
-        {/* 4. JARDIM (Minigames) */}
+        {/* 4. JARDIM (Controle de Jogos) */}
         {currentRoom === 'garden' && (
-          <div className="flex items-center justify-around gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
+          <div className="flex items-center justify-around gap-3 bg-white/80 backdrop-blur-md px-4 py-2 rounded-3xl border-2 border-slate-800 shadow-lg">
             <button
               onClick={() => setIsMinigamesOpen(true)}
-              className="flex items-center justify-center gap-2 flex-1 h-14 bg-purple-600 hover:bg-purple-700 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95 text-white font-black text-xs"
+              className="flex items-center justify-center gap-2 flex-1 h-14 bg-purple-600 hover:bg-purple-700 rounded-2xl border-2 border-slate-800 shadow-xs active:scale-95 text-white font-black text-sm"
             >
-              <span className="text-2xl">🎮</span>
-              <span>Jogar Minigames (4 Jogos)</span>
+              <span className="text-2xl select-none">🎮</span>
+              <span>Minigames</span>
             </button>
 
             <button
               onClick={() => setIsShopOpen(true)}
-              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+              className="flex items-center justify-center w-12 h-12 bg-rose-100 hover:bg-rose-200 rounded-2xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform"
             >
-              <span className="text-xl">🏪</span>
-              <span className="text-[9px] font-black text-slate-800">Loja</span>
+              <span className="text-2xl select-none">🏪</span>
             </button>
           </div>
         )}
 
-        {/* 5. SALA (Bolinha arrastável para brincar ou Carinho) */}
+        {/* 5. SALA (Bolinha Pura de Tênis para Arrastar) */}
         {currentRoom === 'living' && (
-          <div className="flex items-center justify-around gap-2 bg-white/95 p-2 rounded-2xl border-2 border-slate-800 shadow-lg">
-            {/* Bolinha arrastável de tênis */}
+          <div className="flex items-center justify-around gap-4 bg-white/80 backdrop-blur-md px-4 py-2 rounded-3xl border-2 border-slate-800 shadow-lg">
             <motion.div
               drag
               dragSnapToOrigin={true}
-              whileDrag={{ scale: 1.3, zIndex: 60, cursor: 'grabbing' }}
+              whileDrag={{ scale: 1.35, zIndex: 60, cursor: 'grabbing' }}
               onDrag={(_: any, info: any) => setIsHoveredByItem(isPointOverDog(info.point))}
               onDragEnd={(_: any, info: any) => {
                 setIsHoveredByItem(false);
@@ -706,18 +765,16 @@ export const App: React.FC = () => {
                 }
               }}
               onClick={handlePet}
-              className="flex items-center justify-center gap-2 flex-1 h-14 bg-rose-500 hover:bg-rose-600 rounded-xl border-2 border-slate-800 shadow-xs cursor-grab touch-none text-white font-black text-xs"
+              className="cursor-grab touch-none flex items-center justify-center p-2 active:scale-95"
             >
-              <span className="text-2xl select-none">🎾</span>
-              <span>Arraste a Bolinha ou Carinho!</span>
+              <span className="text-4xl drop-shadow-md select-none">🎾</span>
             </motion.div>
 
             <button
               onClick={() => setIsShopOpen(true)}
-              className="flex flex-col items-center justify-center w-14 h-14 bg-rose-100 rounded-xl border-2 border-slate-800 shadow-xs active:scale-95"
+              className="flex items-center justify-center w-12 h-12 bg-rose-100 hover:bg-rose-200 rounded-2xl border-2 border-slate-800 shadow-xs active:scale-95 transition-transform"
             >
-              <span className="text-xl">🏪</span>
-              <span className="text-[9px] font-black text-slate-800">Loja</span>
+              <span className="text-2xl select-none">🏪</span>
             </button>
           </div>
         )}
